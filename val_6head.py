@@ -1,4 +1,4 @@
-# ── Dependencies ───────────────────────────────────────────────────────────────
+# Dependencies
 import subprocess
 subprocess.run(
     [
@@ -11,7 +11,7 @@ subprocess.run(
     check=True,
 )
 
-# ── 1. Imports ─────────────────────────────────────────────────────────────────
+# Imports
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
@@ -27,11 +27,11 @@ from transformers import AutoTokenizer, AutoModel
 from sklearn.metrics import f1_score, roc_auc_score, accuracy_score, roc_curve, silhouette_score
 from tqdm.auto import tqdm
 
-# ── 2. Config — must match training script exactly ─────────────────────────────
+# Config
 MODEL_NAME  = "answerdotai/ModernBERT-base"
-TEST_PATH   = "val.jsonl"          # ← adjust if your file has a different name
+TEST_PATH   = "val.jsonl"          
 SAVE_PATH   = "6head_0.1"
-GENRE_WEIGHT = 0.1                  # used only to reconstruct the save-path label
+GENRE_WEIGHT = 0.1                  
 MAX_LEN     = 4096
 BATCH_SIZE  = 16
 SEEDS       = [42, 123, 7]
@@ -56,16 +56,16 @@ PROMPT_LABELS = {
     99: "human",
 }
 
-# ── 3. Device ──────────────────────────────────────────────────────────────────
+# Device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
 
-# ── 4. Data Utilities ──────────────────────────────────────────────────────────
+# Data Utilities
 def load_jsonl(path: str) -> list:
     with open(path) as f:
         return [json.loads(line) for line in f if line.strip()]
 
-# ── 5. Dataset (identical to training script) ──────────────────────────────────
+# Dataset
 class AIDetectionDataset(Dataset):
     def __init__(self, records: list, tokenizer) -> None:
         self.data = []
@@ -102,7 +102,7 @@ class AIDetectionDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         return self.data[idx]
 
-# ── 6. Collate Function (identical to training script) ─────────────────────────
+# Collate Function
 def make_collate_fn(pad_token_id: int):
     def collate_fn(batch: list) -> dict:
         max_len = max(len(x["input_ids"]) for x in batch)
@@ -126,7 +126,7 @@ def make_collate_fn(pad_token_id: int):
         }
     return collate_fn
 
-# ── 7. Model (identical to training script) ────────────────────────────────────
+# Model
 class MultiTaskModernBERT(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -148,7 +148,7 @@ class MultiTaskModernBERT(nn.Module):
             return self.source_head(pooled), self.genre_source_head(pooled), pooled
         return self.source_head(pooled), self.genre_source_head(pooled)
 
-# ── 8. PAN evaluation metrics ─────────────────────────────────────────────────
+# PAN evaluation metrics 
 def pan_brier(probs: list, labels: list) -> float:
     """PAN Brier score = 1 - mean squared error (higher is better)."""
     p = np.array(probs, dtype=float)
@@ -179,7 +179,7 @@ def pan_f05u(probs: list, labels: list) -> float:
     return float(1.25 * n_tp / denom) if denom > 0 else 0.0
 
 
-# ── 9. Evaluation (identical to training script) ───────────────────────────────
+# Evaluation
 @torch.no_grad()
 def evaluate(model: nn.Module, loader: DataLoader) -> dict:
     model.eval()
@@ -293,8 +293,7 @@ def evaluate(model: nn.Module, loader: DataLoader) -> dict:
             metrics[f"{p_name}_mean_prob"] = float(np.mean(p_probs))
 
     return metrics
-
-# ── 10. Print helper ───────────────────────────────────────────────────────────
+    
 def print_metrics(metrics: dict, prefix: str = "") -> None:
     tag = f"[{prefix}] " if prefix else ""
     line = (
@@ -349,11 +348,10 @@ def print_metrics(metrics: dict, prefix: str = "") -> None:
     if prompt_parts:
         print(f"  per-prompt:     {('  |  ').join(prompt_parts)}")
 
-# ── 11. Main ───────────────────────────────────────────────────────────────────
+# Main
 def main() -> None:
     label = f"gw{GENRE_WEIGHT}"
 
-    # ── Tokenizer: load from the first seed's saved tokenizer ─────────────────
     first_tokenizer_path = f"{SAVE_PATH}_{label}_seed{SEEDS[0]}_tokenizer"
     if os.path.isdir(first_tokenizer_path):
         print(f"Loading tokenizer from {first_tokenizer_path}")
@@ -362,7 +360,6 @@ def main() -> None:
         print(f"Saved tokenizer not found at {first_tokenizer_path}, loading from HuggingFace.")
         tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-    # ── Test dataset (tokenise once, then cache) ───────────────────────────────
     print(f"\nLoading test data from {TEST_PATH} ...")
     test_records = load_jsonl(TEST_PATH)
     print(f"  test={len(test_records)}")
@@ -384,8 +381,7 @@ def main() -> None:
         num_workers=0,
         pin_memory=device.type == "cuda",
     )
-
-    # ── Evaluate each seed's best checkpoint ──────────────────────────────────
+    
     all_metrics: list = []
 
     for seed in SEEDS:
@@ -415,7 +411,6 @@ def main() -> None:
         print("\nNo checkpoints were found. Exiting.")
         return
 
-    # ── Aggregate across seeds ─────────────────────────────────────────────────
     print(f"\n{'=' * 60}")
     print(f"Aggregate test results [{label}]  |  seeds={SEEDS}")
     print(f"{'=' * 60}")
@@ -428,7 +423,6 @@ def main() -> None:
         tag = f"±{np.std(vals):.4f}" if len(vals) > 1 else ""
         print(f"  {k}: {np.mean(vals):.4f} {tag}")
 
-    # ── Save full results ──────────────────────────────────────────────────────
     results_path = f"{SAVE_PATH}_{label}_val_results.json"
     with open(results_path, "w") as f:
         json.dump({
