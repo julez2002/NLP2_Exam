@@ -2,7 +2,6 @@ import subprocess
 subprocess.run(
     [
         "pip", "install", "-q",
-        # torch is pre-installed on UCloud with the correct CUDA version — do not add it here
         "numpy",
         "transformers",
         "accelerate",
@@ -10,7 +9,7 @@ subprocess.run(
     ],
     check=True,
 )
-# ── 1. Imports ─────────────────────────────────────────────────────────────────
+# Imports
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
@@ -28,28 +27,28 @@ from transformers import AutoTokenizer, AutoModel, get_linear_schedule_with_warm
 from sklearn.metrics import f1_score, roc_auc_score, accuracy_score, roc_curve, silhouette_score
 from tqdm.auto import tqdm
 
-# ── 2. Config ──────────────────────────────────────────────────────────────────
+# Config
 MODEL_NAME   = "answerdotai/ModernBERT-base"
 TRAIN_PATH   = 'merged_train.jsonl'
 VAL_PATH     = 'val.jsonl'
 SAVE_PATH    = 'baseline'
 
-MAX_LEN      = 4096   # B200 192 GB; covers virtually all texts (T4 was capped at 1024)
+MAX_LEN      = 4096  
 LR           = 2e-5
-EPOCHS       = 15     # early stopping controls actual length
-BATCH_SIZE   = 16     # physical batch on B200 192 GB
-ACCUM_STEPS  = 4      # effective batch = 64
-PATIENCE     = 4      # stop after 4 epochs without macro-F1 gain ≥ MIN_DELTA
-MIN_DELTA    = 5e-3   # minimum F1 improvement to count as progress (plateau guard)
-SEEDS        = [42, 123, 7]   # seeds for multi-run averaging
+EPOCHS       = 15     
+BATCH_SIZE   = 16     
+ACCUM_STEPS  = 4      
+PATIENCE     = 4      
+MIN_DELTA    = 5e-3   
+SEEDS        = [42, 123, 7]   
 
 _cache_tag   = f"{MODEL_NAME.replace('/', '_')}_{MAX_LEN}"
-TRAIN_CACHE  = f'train_tokenized_{_cache_tag}.pt'   # invalidates automatically when MODEL_NAME or MAX_LEN changes
+TRAIN_CACHE  = f'train_tokenized_{_cache_tag}.pt'   
 VAL_CACHE    = f'val_tokenized_{_cache_tag}.pt'
 
 GENRE_MAP = {"fiction": 0, "news": 1, "essays": 2}
 
-# ── 3. Reproducibility & Device ────────────────────────────────────────────────
+# Device
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
@@ -59,14 +58,13 @@ def set_seed(seed: int) -> None:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
 
-# ── 4. Data Utilities ──────────────────────────────────────────────────────────
+# Data Utilities
 def load_jsonl(path: str) -> list:
     with open(path) as f:
         return [json.loads(line) for line in f if line.strip()]
 
 
 def compute_binary_weights(records: list) -> torch.Tensor:
-    """Inverse-frequency weights for the binary (source) head."""
     n       = len(records)
     n_human = sum(1 for r in records if r["label"] == 0)
     n_ai    = n - n_human
@@ -74,12 +72,8 @@ def compute_binary_weights(records: list) -> torch.Tensor:
 
 
 
-# ── 5. Dataset ─────────────────────────────────────────────────────────────────
+# Dataset
 class AIDetectionDataset(Dataset):
-    """
-    Pre-tokenises all records once.  Each item stores raw token lists so the
-    collate_fn can apply dynamic (per-batch) padding.
-    """
 
     def __init__(self, records: list, tokenizer) -> None:
         self.data = []
@@ -93,9 +87,9 @@ class AIDetectionDataset(Dataset):
             self.data.append({
                 "input_ids":      enc["input_ids"],
                 "attention_mask": enc["attention_mask"],
-                "source_label":   r.get("label", -1),          # -1 when unlabelled (test set)
-                "genre_label":    GENRE_MAP.get(r.get("genre", ""), -1),  # -1 when absent
-                "attack":         r.get("attack"),              # None when field absent
+                "source_label":   r.get("label", -1),         
+                "genre_label":    GENRE_MAP.get(r.get("genre", ""), -1),  
+                "attack":         r.get("attack"),              
             })
 
     def save(self, path: str) -> None:
@@ -108,11 +102,6 @@ class AIDetectionDataset(Dataset):
         return obj
 
     def sort_by_length(self, noise: int = 8) -> None:
-        """
-        Sort by sequence length with a small random jitter so consecutive
-        epochs don't produce identical batches.  Call at the start of every
-        epoch to get fresh bucket assignments.
-        """
         self.data.sort(
             key=lambda x: len(x["input_ids"]) + random.randint(0, noise)
         )
@@ -123,15 +112,9 @@ class AIDetectionDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         return self.data[idx]
 
-# ── 6. Collate Function ────────────────────────────────────────────────────────
+# Collate Function
 def make_collate_fn(pad_token_id: int):
-    """
-    Returns a collate function that pads each batch to the length of its
-    longest sequence (dynamic padding), using the tokenizer's actual pad token.
-    Works in tandem with length-sorted batching to keep padding minimal.
-    The 'attack' field is passed through as a plain Python list because it
-    is a string / None and cannot be stacked into a tensor.
-    """
+    
     def collate_fn(batch: list) -> dict:
         max_len = max(len(x["input_ids"]) for x in batch)
 
@@ -155,17 +138,13 @@ def make_collate_fn(pad_token_id: int):
         }
     return collate_fn
 
-# ── 7. Model ───────────────────────────────────────────────────────────────────
+# Model
 class ModernBERTClassifier(nn.Module):
-    """
-    ModernBERT encoder with a single binary classification head:
-      - source_head : binary  (0 = human, 1 = AI)
-    """
 
     def __init__(self) -> None:
         super().__init__()
         self.encoder = AutoModel.from_pretrained(MODEL_NAME)
-        hidden = self.encoder.config.hidden_size  # 768 for ModernBERT-base
+        hidden = self.encoder.config.hidden_size  
         self.dropout     = nn.Dropout(0.1)
         self.source_head = nn.Linear(hidden, 2)
 
@@ -189,23 +168,9 @@ class ModernBERTClassifier(nn.Module):
             return self.source_head(pooled), pooled
         return self.source_head(pooled)
 
-# ── 8. Evaluation ──────────────────────────────────────────────────────────────
+# Evaluation 
 @torch.no_grad()
 def evaluate(model: nn.Module, loader: DataLoader) -> dict:
-    """
-    Computes all metrics on a given DataLoader.
-
-    Binary task (source head — reported for model selection):
-        binary_f1, macro_f1, auc_roc, accuracy, tpr_at_5fpr
-
-    Clean/attacked breakdown (symmetric — same three metrics on each side):
-        clean_binary_f1, clean_auc_roc, clean_tpr_at_5fpr
-        attacked_binary_f1, attacked_auc_roc*, attacked_tpr_at_5fpr
-        (*attacked_auc_roc only present when the attacked subset contains
-        both classes; normally all attacked records are AI so it is omitted.
-        attacked_tpr_at_5fpr uses the threshold from the full-val ROC curve
-        at FPR=5%, making it directly comparable to clean_tpr_at_5fpr.)
-    """
     model.eval()
 
     all_probs, all_preds, all_labels = [], [], []
@@ -227,7 +192,6 @@ def evaluate(model: nn.Module, loader: DataLoader) -> dict:
         all_attacks.extend(batch["attack"])
         all_embeddings.append(pooled.float().cpu())
 
-    # Full-val ROC — used for tpr_at_5fpr and as the threshold anchor for attacked
     _fprs, _tprs, _threshs = roc_curve(all_labels, all_probs)
     _valid = np.where(_fprs <= 0.05)[0]
     _t5_thresh = float(_threshs[_valid[-1]]) if len(_valid) else 1.0
@@ -240,14 +204,12 @@ def evaluate(model: nn.Module, loader: DataLoader) -> dict:
         "tpr_at_5fpr":    float(_tprs[_valid[-1]]) if len(_valid) else 0.0,
     }
 
-    # ── silhouette scores (cosine distance; capped at 2 000 samples for speed) ─
     _emb = torch.cat(all_embeddings, 0).numpy()
     _sil_n = min(len(all_labels), 2000)
     metrics["source_silhouette"] = float(silhouette_score(
         _emb, all_labels, metric="cosine", sample_size=_sil_n, random_state=0,
     ))
 
-    # ── clean vs attacked breakdown (symmetric metrics) ───────────────────────
     attacked_idx = [i for i, a in enumerate(all_attacks) if a is not None]
     clean_idx    = [i for i, a in enumerate(all_attacks) if a is None]
 
@@ -268,19 +230,15 @@ def evaluate(model: nn.Module, loader: DataLoader) -> dict:
         a_probs  = [all_probs[i]  for i in attacked_idx]
         metrics["attacked_binary_f1"] = f1_score(a_labels, a_preds, average="binary", pos_label=1)
         if len(set(a_labels)) > 1:
-            # Both classes present — full symmetric metrics available
             metrics["attacked_auc_roc"] = roc_auc_score(a_labels, a_probs)
             _a_fprs, _a_tprs, _ = roc_curve(a_labels, a_probs)
             _av = np.where(_a_fprs <= 0.05)[0]
             metrics["attacked_tpr_at_5fpr"] = float(_a_tprs[_av[-1]]) if len(_av) else 0.0
         else:
-            # Single-class (all AI): use full-val threshold so the value is
-            # on the same operating point as clean_tpr_at_5fpr
             metrics["attacked_tpr_at_5fpr"] = float(
                 np.mean([p >= _t5_thresh for p in a_probs])
             )
 
-    # ── per-genre binary F1 ───────────────────────────────────────────────────
     genre_names = {v: k for k, v in GENRE_MAP.items()}
     for g_idx, g_name in genre_names.items():
         g_idxs = [i for i, g in enumerate(all_genre_labels) if g == g_idx]
@@ -294,7 +252,7 @@ def evaluate(model: nn.Module, loader: DataLoader) -> dict:
 
     return metrics
 
-# ── 9. Training ────────────────────────────────────────────────────────────────
+# Training
 def train(
     model: nn.Module,
     train_dataset: AIDetectionDataset,
@@ -317,11 +275,7 @@ def train(
     history: list     = []
 
     for epoch in range(EPOCHS):
-        # ── Re-sort with jitter for fresh bucket assignments ──────────────────
         train_dataset.sort_by_length(noise=8)
-
-        # DataLoader is re-created each epoch so it samples the newly sorted order.
-        # shuffle=False is required to preserve the sorted (bucket) order.
         train_loader = DataLoader(
             train_dataset,
             batch_size=BATCH_SIZE,
@@ -356,7 +310,6 @@ def train(
 
             pbar.set_postfix(loss=f"{running_loss / (step + 1):.4f}")
 
-        # Flush trailing micro-batches that didn't complete a full accumulation window
         if (step + 1) % ACCUM_STEPS != 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
@@ -397,7 +350,6 @@ def train(
         prev_best    = best_val_macro_f1
         saved        = False
 
-        # Save on any improvement — MIN_DELTA does not gate the checkpoint
         if val_macro_f1 > best_val_macro_f1:
             best_val_macro_f1 = val_macro_f1
             saved = True
@@ -414,7 +366,6 @@ def train(
                 }, _f, indent=2)
             print(f"  Saved best model  (val macro_f1={best_val_macro_f1:.4f})")
 
-        # MIN_DELTA gates early-stopping patience only
         if val_macro_f1 > prev_best + MIN_DELTA:
             patience_counter = 0
         else:
@@ -438,7 +389,7 @@ def train(
 
     return best_val_macro_f1
 
-# ── 10. Seed runner ────────────────────────────────────────────────────────────
+# Seed runner
 def run_seeds(
     label: str,
     train_dataset: AIDetectionDataset,
@@ -498,11 +449,10 @@ def run_seeds(
     return results
 
 
-# ── 12. Main ───────────────────────────────────────────────────────────────────
+# Main
 def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-
-    # ── Load ──────────────────────────────────────────────────────────────────
+    
     print("Loading data...")
     train_records = load_jsonl(TRAIN_PATH)
     val_records   = load_jsonl(VAL_PATH)
@@ -511,7 +461,6 @@ def main() -> None:
     binary_weights = compute_binary_weights(train_records)
     print(f"  Binary weights — human: {binary_weights[0]:.3f} | AI: {binary_weights[1]:.3f}")
 
-    # ── Tokenise (or load from cache) ─────────────────────────────────────────
     if os.path.exists(TRAIN_CACHE) and os.path.exists(VAL_CACHE):
         print("\nLoading tokenised datasets from cache...")
         train_dataset = AIDetectionDataset.from_cache(TRAIN_CACHE)
@@ -540,10 +489,8 @@ def main() -> None:
         tokenizer=tokenizer,
     )
 
-    # ── Run baseline ──────────────────────────────────────────────────────────
     target_results = run_seeds("baseline", **kwargs)
 
-    # ── Save results to JSON for offline analysis ─────────────────────────────
     results_path = f"{SAVE_PATH}_results.json"
     with open(results_path, "w") as f:
         json.dump({
