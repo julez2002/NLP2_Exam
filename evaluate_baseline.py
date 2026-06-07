@@ -4,7 +4,7 @@ subprocess.run(
     check=True,
 )
 
-# ── 1. Imports ─────────────────────────────────────────────────────────────────
+# Imports
 import os
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
@@ -20,7 +20,7 @@ from transformers import AutoTokenizer, AutoModel
 from sklearn.metrics import f1_score, roc_auc_score, accuracy_score, roc_curve, silhouette_score
 from tqdm.auto import tqdm
 
-# ── 2. Config — must match training script exactly ─────────────────────────────
+# Config
 MODEL_NAME  = "answerdotai/ModernBERT-base"
 TEST_PATH   = "test.jsonl"
 SAVE_PATH   = "baseline"
@@ -45,12 +45,12 @@ TEST_CACHE = f"test_tokenized_{_cache_tag}.pt"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device: {device}")
 
-# ── 3. Data utilities ──────────────────────────────────────────────────────────
+# Data utilities
 def load_jsonl(path: str) -> list:
     with open(path) as f:
         return [json.loads(line) for line in f if line.strip()]
 
-# ── 4. Dataset ─────────────────────────────────────────────────────────────────
+# Dataset
 class AIDetectionDataset(Dataset):
     def __init__(self, records: list, tokenizer) -> None:
         self.data = []
@@ -85,7 +85,7 @@ class AIDetectionDataset(Dataset):
     def __getitem__(self, idx: int) -> dict:
         return self.data[idx]
 
-# ── 5. Collate ─────────────────────────────────────────────────────────────────
+# Collate
 def make_collate_fn(pad_token_id: int):
     def collate_fn(batch: list) -> dict:
         max_len = max(len(x["input_ids"]) for x in batch)
@@ -109,7 +109,7 @@ def make_collate_fn(pad_token_id: int):
         }
     return collate_fn
 
-# ── 6. Model ───────────────────────────────────────────────────────────────────
+# Model
 class ModernBERTClassifier(nn.Module):
     def __init__(self) -> None:
         super().__init__()
@@ -130,7 +130,7 @@ class ModernBERTClassifier(nn.Module):
             return self.source_head(pooled), pooled
         return self.source_head(pooled)
 
-# ── 7. PAN evaluation metrics ─────────────────────────────────────────────────
+# PAN evaluation metrics
 def pan_brier(probs: list, labels: list) -> float:
     """PAN Brier score = 1 - mean squared error (higher is better)."""
     p = np.array(probs, dtype=float)
@@ -161,7 +161,7 @@ def pan_f05u(probs: list, labels: list) -> float:
     return float(1.25 * n_tp / denom) if denom > 0 else 0.0
 
 
-# ── 8. Evaluation ──────────────────────────────────────────────────────────────
+# Evaluation
 @torch.no_grad()
 def evaluate(model: nn.Module, loader: DataLoader) -> dict:
     model.eval()
@@ -259,7 +259,6 @@ def evaluate(model: nn.Module, loader: DataLoader) -> dict:
 
     return metrics
 
-# ── 9. Pretty-print helper ─────────────────────────────────────────────────────
 def print_metrics(metrics: dict, prefix: str = "") -> None:
     line = (
         f"{prefix}"
@@ -303,7 +302,7 @@ def print_metrics(metrics: dict, prefix: str = "") -> None:
     if prompt_parts:
         print(f"  per-prompt:     {('  |  ').join(prompt_parts)}")
 
-# ── 10. Main ───────────────────────────────────────────────────────────────────
+# Main
 def main() -> None:
     label = "baseline"
 
