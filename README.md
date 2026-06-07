@@ -11,8 +11,8 @@ Fine-tunes **ModernBERT-base** (`answerdotai/ModernBERT-base`) on a multi-genre 
 | File | Model | Description |
 |------|-------|-------------|
 | `Ucloud_baseline.py` | **Baseline** | Single binary head: human vs. AI |
-| `Ucloud_6head_final.py` | **6-Head** | Binary head + 6-way auxiliary head (genre × source interaction) |
-| `Ucloud_3genre_final.py` | **3-Way Genre Head** | Binary head + 3-way auxiliary head (genre classification) |
+| `Ucloud_6head_final.py` | **6-Way Head** | Binary head + 6-way auxiliary head (genre × source interaction) |
+| `Ucloud_3genre_final.py` | **3-Way Head** | Binary head + 3-way auxiliary head (genre classification) |
 
 The `_0.5` variants repeat training with auxiliary loss weight `λ = 0.5` instead of `0.1`.
 
@@ -64,8 +64,8 @@ Identical to the val scripts but run against **`test.jsonl`**. Additionally repo
 | File | Model variant |
 |------|--------------|
 | `evaluate_baseline.py` | Baseline |
-| `evaluate_6head.py` | 6-Head (λ = 0.1) |
-| `evaluate_3genre.py` | 3-Way Genre Head (λ = 0.1) |
+| `evaluate_6head.py` | 6-Way Head (λ = 0.1) |
+| `evaluate_3genre.py` | 3-Way Head (λ = 0.1) |
 
 Results saved to `<SAVE_PATH>_<label>_test_results.json`.
 
