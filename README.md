@@ -41,9 +41,7 @@ Run against **`val.jsonl`** using saved checkpoints from training.
 |------|------------------------|
 | `val_baseline.py` | `Ucloud_baseline.py` |
 | `val_6head.py` | `Ucloud_6head_final.py` (λ = 0.1) |
-| `val_6head_0.5.py` | `Ucloud_6head_0.5.py` (λ = 0.5) |
 | `val_3genre_0.1.py` | `Ucloud_3genre_final.py` (λ = 0.1) |
-| `val_3genre_0.5.py` | `Ucloud_3genre_final_0.5.py` (λ = 0.5) |
 
 Each val script loads the three seed checkpoints, evaluates each on the validation set, then prints and saves aggregate metrics (mean ± std).
 
@@ -67,9 +65,7 @@ Identical to the val scripts but run against **`test.jsonl`**. Additionally repo
 |------|--------------|
 | `evaluate_baseline.py` | Baseline |
 | `evaluate_6head.py` | 6-Head (λ = 0.1) |
-| `evaluate_6head_0.5.py` | 6-Head (λ = 0.5) |
 | `evaluate_3genre.py` | 3-Way Genre Head (λ = 0.1) |
-| `evaluate_3genre_0.5.py` | 3-Way Genre Head (λ = 0.5) |
 
 Results saved to `<SAVE_PATH>_<label>_test_results.json`.
 
