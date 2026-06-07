@@ -69,6 +69,10 @@ Identical to the val scripts but run against **`test.jsonl`**. Additionally repo
 
 Results saved to `<SAVE_PATH>_<label>_test_results.json`.
 
+### Generat obfuscation
+
+Each file created 25 obfuscated outputs from Qwen3.5-9B, dependent on the obfuscation method. The same structure but different prompt was used for the 100 non-obfuscated outputs.
+
 > Scripts were developed for UCloud (NVIDIA B200, 192 GB VRAM) with `MAX_LEN = 4096`. On smaller GPUs reduce `MAX_LEN` and `BATCH_SIZE` accordingly.
 
 `torch` (pre-installed on UCloud), `numpy`, `transformers`, `accelerate`, `scikit-learn`
